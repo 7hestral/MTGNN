@@ -93,7 +93,7 @@ def train(data, X, Y, model, criterion, optim, batch_size):
 
 
 parser = argparse.ArgumentParser(description='PyTorch Time series forecasting')
-parser.add_argument('--data', type=str, default='/mnt/results/user_72_activity_bodyport_ffilled.csv',
+parser.add_argument('--data', type=str, default='/mnt/results/user_72_activity_bodyport_hyperimpute.csv',
                     help='location of the data file')
 parser.add_argument('--log_interval', type=int, default=2000, metavar='N',
                     help='report interval')
