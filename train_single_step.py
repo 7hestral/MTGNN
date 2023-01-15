@@ -141,7 +141,7 @@ torch.set_num_threads(3)
 
 def main():
 
-    Data = DataLoaderS(args.data, 0.6, 0.2, device, args.horizon, args.seq_in_len, args.normalize)
+    Data = DataLoaderS(args.data, 0.8, 0.2, device, args.horizon, args.seq_in_len, args.normalize)
 
     model = gtnet(args.gcn_true, args.buildA_true, args.gcn_depth, args.num_nodes,
                   device, dropout=args.dropout, subgraph_size=args.subgraph_size,
@@ -187,10 +187,10 @@ def main():
                 with open(args.save, 'wb') as f:
                     torch.save(model, f)
                 best_val = val_loss
-            if epoch % 5 == 0:
-                test_acc, test_rae, test_corr = evaluate(Data, Data.test[0], Data.test[1], model, evaluateL2, evaluateL1,
-                                                     args.batch_size)
-                print("test rse {:5.4f} | test rae {:5.4f} | test corr {:5.4f}".format(test_acc, test_rae, test_corr), flush=True)
+            # if epoch % 5 == 0:
+            #     test_acc, test_rae, test_corr = evaluate(Data, Data.test[0], Data.test[1], model, evaluateL2, evaluateL1,
+            #                                          args.batch_size)
+            #     print("test rse {:5.4f} | test rae {:5.4f} | test corr {:5.4f}".format(test_acc, test_rae, test_corr), flush=True)
 
     except KeyboardInterrupt:
         print('-' * 89)
@@ -202,9 +202,10 @@ def main():
 
     vtest_acc, vtest_rae, vtest_corr = evaluate(Data, Data.valid[0], Data.valid[1], model, evaluateL2, evaluateL1,
                                          args.batch_size)
-    test_acc, test_rae, test_corr = evaluate(Data, Data.test[0], Data.test[1], model, evaluateL2, evaluateL1,
-                                         args.batch_size)
-    print("final test rse {:5.4f} | test rae {:5.4f} | test corr {:5.4f}".format(test_acc, test_rae, test_corr))
+    # test_acc, test_rae, test_corr = evaluate(Data, Data.test[0], Data.test[1], model, evaluateL2, evaluateL1,
+    #                                      args.batch_size)
+    # print("final test rse {:5.4f} | test rae {:5.4f} | test corr {:5.4f}".format(test_acc, test_rae, test_corr))
+    test_acc, test_rae, test_corr = None, None, None
     return vtest_acc, vtest_rae, vtest_corr, test_acc, test_rae, test_corr
 
 if __name__ == "__main__":
@@ -214,7 +215,8 @@ if __name__ == "__main__":
     acc = []
     rae = []
     corr = []
-    for i in range(10):
+    num_runs = 3
+    for i in range(num_runs):
         val_acc, val_rae, val_corr, test_acc, test_rae, test_corr = main()
         vacc.append(val_acc)
         vrae.append(val_rae)
@@ -223,13 +225,13 @@ if __name__ == "__main__":
         rae.append(test_rae)
         corr.append(test_corr)
     print('\n\n')
-    print('10 runs average')
+    print(f'{num_runs} runs average')
     print('\n\n')
     print("valid\trse\trae\tcorr")
     print("mean\t{:5.4f}\t{:5.4f}\t{:5.4f}".format(np.mean(vacc), np.mean(vrae), np.mean(vcorr)))
     print("std\t{:5.4f}\t{:5.4f}\t{:5.4f}".format(np.std(vacc), np.std(vrae), np.std(vcorr)))
-    print('\n\n')
-    print("test\trse\trae\tcorr")
-    print("mean\t{:5.4f}\t{:5.4f}\t{:5.4f}".format(np.mean(acc), np.mean(rae), np.mean(corr)))
-    print("std\t{:5.4f}\t{:5.4f}\t{:5.4f}".format(np.std(acc), np.std(rae), np.std(corr)))
+    # print('\n\n')
+    # print("test\trse\trae\tcorr")
+    # print("mean\t{:5.4f}\t{:5.4f}\t{:5.4f}".format(np.mean(acc), np.mean(rae), np.mean(corr)))
+    # print("std\t{:5.4f}\t{:5.4f}\t{:5.4f}".format(np.std(acc), np.std(rae), np.std(corr)))
 
