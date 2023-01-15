@@ -12,6 +12,11 @@ def normal_std(x):
 class DataLoaderS(object):
     # train and valid is the ratio of training set and validation set. test = 1 - train - valid
     def __init__(self, file_name, train, valid, device, horizon, window, normalize=2):
+        self.if_test = True
+        if 1 - train - valid < 0.05:
+            print(1-train-valid)
+            print("no test")
+            self.if_test = False
         self.P = window
         self.h = horizon
         fin = open(file_name)
@@ -24,7 +29,10 @@ class DataLoaderS(object):
         self._split(int(train * self.n), int((train + valid) * self.n), self.n)
 
         self.scale = torch.from_numpy(self.scale).float()
-        tmp = self.test[1] * self.scale.expand(self.test[1].size(0), self.m)
+        if self.if_test:
+            tmp = self.test[1] * self.scale.expand(self.test[1].size(0), self.m)
+        else:
+            tmp = self.valid[1] * self.scale.expand(self.valid[1].size(0), self.m)
 
         self.scale = self.scale.to(device)
         self.scale = Variable(self.scale)
@@ -56,7 +64,8 @@ class DataLoaderS(object):
         test_set = range(valid, self.n)
         self.train = self._batchify(train_set, self.h)
         self.valid = self._batchify(valid_set, self.h)
-        self.test = self._batchify(test_set, self.h)
+        if self.if_test:
+            self.test = self._batchify(test_set, self.h)
 
     def _batchify(self, idx_set, horizon):
         n = len(idx_set)
