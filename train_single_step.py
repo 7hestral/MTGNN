@@ -93,7 +93,7 @@ def train(data, X, Y, model, criterion, optim, batch_size):
 
 
 parser = argparse.ArgumentParser(description='PyTorch Time series forecasting')
-parser.add_argument('--data', type=str, default='/mnt/results/user_72_activity_bodyport_hyperimpute.csv',
+parser.add_argument('--data', type=str, default='/mnt/results/user_1032_activity_bodyport_hyperimpute.csv',
                     help='location of the data file')
 parser.add_argument('--log_interval', type=int, default=2000, metavar='N',
                     help='report interval')
@@ -130,7 +130,7 @@ parser.add_argument('--clip',type=int,default=5,help='clip')
 parser.add_argument('--propalpha',type=float,default=0.05,help='prop alpha')
 parser.add_argument('--tanhalpha',type=float,default=3,help='tanh alpha')
 
-parser.add_argument('--epochs',type=int,default=5,help='')
+parser.add_argument('--epochs',type=int,default=50,help='')
 parser.add_argument('--num_split',type=int,default=1,help='number of splits for graphs')
 parser.add_argument('--step_size',type=int,default=100,help='step_size')
 
