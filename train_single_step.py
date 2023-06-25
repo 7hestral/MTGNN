@@ -73,7 +73,7 @@ def train(data, X, Y, model, criterion, optim, batch_size):
                 id = perm[j * num_sub:(j + 1) * num_sub]
             else:
                 id = perm[j * num_sub:]
-            id = torch.tensor(id).to(device)
+            id = torch.tensor(id).long().to(device)
             tx = X[:, :, id, :]
             ty = Y[:, id]
             output = model(tx,id)
@@ -93,11 +93,11 @@ def train(data, X, Y, model, criterion, optim, batch_size):
 
 
 parser = argparse.ArgumentParser(description='PyTorch Time series forecasting')
-parser.add_argument('--data', type=str, default='/mnt/results/user_72_activity_bodyport_hyperimpute.csv',
+parser.add_argument('--data', type=str, default='./data/solar_AL.txt',
                     help='location of the data file')
 parser.add_argument('--log_interval', type=int, default=2000, metavar='N',
                     help='report interval')
-parser.add_argument('--save', type=str, default='/mnt/results/model/model.pt',
+parser.add_argument('--save', type=str, default='model/model_last_half.pt',
                     help='path to save the final model')
 parser.add_argument('--optim', type=str, default='adam')
 parser.add_argument('--L1Loss', type=bool, default=True)
@@ -106,9 +106,9 @@ parser.add_argument('--device',type=str,default='cuda:0',help='')
 parser.add_argument('--gcn_true', type=bool, default=True, help='whether to add graph convolution layer')
 parser.add_argument('--buildA_true', type=bool, default=True, help='whether to construct adaptive adjacency matrix')
 parser.add_argument('--gcn_depth',type=int,default=2,help='graph convolution depth')
-parser.add_argument('--num_nodes',type=int,default=19,help='number of nodes/variables') # used to be 137 for solar
+parser.add_argument('--num_nodes',type=int,default=137,help='number of nodes/variables')
 parser.add_argument('--dropout',type=float,default=0.3,help='dropout rate')
-parser.add_argument('--subgraph_size',type=int,default=19,help='k') # used to be 20 by default
+parser.add_argument('--subgraph_size',type=int,default=20,help='k')
 parser.add_argument('--node_dim',type=int,default=40,help='dim of nodes')
 parser.add_argument('--dilation_exponential',type=int,default=2,help='dilation exponential')
 parser.add_argument('--conv_channels',type=int,default=16,help='convolution channels')
@@ -116,9 +116,9 @@ parser.add_argument('--residual_channels',type=int,default=16,help='residual cha
 parser.add_argument('--skip_channels',type=int,default=32,help='skip channels')
 parser.add_argument('--end_channels',type=int,default=64,help='end channels')
 parser.add_argument('--in_dim',type=int,default=1,help='inputs dimension')
-parser.add_argument('--seq_in_len',type=int,default=30,help='input sequence length') # used to be 24*7 for solar
+parser.add_argument('--seq_in_len',type=int,default=24*7,help='input sequence length')
 parser.add_argument('--seq_out_len',type=int,default=1,help='output sequence length')
-parser.add_argument('--horizon', type=int, default=7)
+parser.add_argument('--horizon', type=int, default=3)
 parser.add_argument('--layers',type=int,default=5,help='number of layers')
 
 parser.add_argument('--batch_size',type=int,default=32,help='batch size')
@@ -130,7 +130,7 @@ parser.add_argument('--clip',type=int,default=5,help='clip')
 parser.add_argument('--propalpha',type=float,default=0.05,help='prop alpha')
 parser.add_argument('--tanhalpha',type=float,default=3,help='tanh alpha')
 
-parser.add_argument('--epochs',type=int,default=5,help='')
+parser.add_argument('--epochs',type=int,default=1,help='')
 parser.add_argument('--num_split',type=int,default=1,help='number of splits for graphs')
 parser.add_argument('--step_size',type=int,default=100,help='step_size')
 
@@ -214,7 +214,7 @@ if __name__ == "__main__":
     acc = []
     rae = []
     corr = []
-    for i in range(10):
+    for i in range(1):
         val_acc, val_rae, val_corr, test_acc, test_rae, test_corr = main()
         vacc.append(val_acc)
         vrae.append(val_rae)
