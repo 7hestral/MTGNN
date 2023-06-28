@@ -11,7 +11,7 @@ import importlib
 from util import *
 from trainer import Optim
 
-
+beta_kldiv = 0.5
 def evaluate(data, X, Y, model, evaluateL2, evaluateL1, batch_size):
     model.eval()
     total_loss = 0
@@ -24,36 +24,56 @@ def evaluate(data, X, Y, model, evaluateL2, evaluateL1, batch_size):
         X = torch.unsqueeze(X,dim=1)
         X = X.transpose(2,3)
         with torch.no_grad():
-            output = model(X)
+            output, mu, logvar = model(X)
         output = torch.squeeze(output)
+        Y = torch.squeeze(X)
         if len(output.shape)==1:
             output = output.unsqueeze(dim=0)
         if predict is None:
-            predict = output
-            test = Y
+            predict = output.reshape(output.shape[0], -1)
+            # test = Y
+            test = torch.squeeze(X).reshape(X.shape[0], -1)
         else:
-            predict = torch.cat((predict, output))
-            test = torch.cat((test, Y))
-
+            predict = torch.cat((predict, output.reshape(output.shape[0], -1)))
+            test = torch.cat((test, torch.squeeze(X).reshape(X.shape[0], -1)))
+        # print('output.shape', output.shape)
+        # print('data.m', data.m)
         scale = data.scale.expand(output.size(0), data.m)
-        total_loss += evaluateL2(output * scale, Y * scale).item()
-        total_loss_l1 += evaluateL1(output * scale, Y * scale).item()
-        n_samples += (output.size(0) * data.m)
+        total_loss += evaluateL2(output, Y).item()
+        total_loss_l1 += evaluateL1(output, Y).item()
+        n_samples += (output.size(0) * data.m * args.seq_in_len)
 
-    rse = math.sqrt(total_loss / n_samples) / data.rse
-    rae = (total_loss_l1 / n_samples) / data.rae
+    rse = math.sqrt(total_loss / n_samples)#  / data.rse
+    rae = (total_loss_l1 / n_samples) # / data.rae
 
     predict = predict.data.cpu().numpy()
     Ytest = test.data.cpu().numpy()
+    print("predict.shape", predict.shape)
     sigma_p = (predict).std(axis=0)
+    print(sigma_p)
     sigma_g = (Ytest).std(axis=0)
+    print(sigma_g)
     mean_p = predict.mean(axis=0)
+    print(mean_p)
     mean_g = Ytest.mean(axis=0)
+    print(mean_g)
     index = (sigma_g != 0)
+    print(sigma_p * sigma_g)
     correlation = ((predict - mean_p) * (Ytest - mean_g)).mean(axis=0) / (sigma_p * sigma_g)
     correlation = (correlation[index]).mean()
     return rse, rae, correlation
 
+def kl_loss(mu=None, logstd=None):
+    """
+    Closed formula of the KL divergence for normal distributions
+    """
+    MAX_LOGSTD = 10
+    logstd =  logstd.clamp(max=MAX_LOGSTD)
+    kl_div = -beta_kldiv * torch.mean(torch.sum(1 + 2 * logstd - mu**2 - logstd.exp()**2, dim=1))
+
+    # Limit numeric errors
+    kl_div = kl_div.clamp(max=1000)
+    return kl_div
 
 def train(data, X, Y, model, criterion, optim, batch_size):
     model.train()
@@ -75,12 +95,17 @@ def train(data, X, Y, model, criterion, optim, batch_size):
                 id = perm[j * num_sub:]
             id = torch.tensor(id).long().to(device)
             tx = X[:, :, id, :]
-            ty = Y[:, id]
-            output = model(tx,id)
+            ty = torch.squeeze(tx)
+            print("ty.shape", ty.shape)
+            # ty = Y[:, id]
+            output, mu, logvar = model(tx,id)
+            kldiv = kl_loss(mu, logvar)
             output = torch.squeeze(output)
             scale = data.scale.expand(output.size(0), data.m)
             scale = scale[:,id]
-            loss = criterion(output * scale, ty * scale)
+            print(scale.shape)
+            loss = criterion(output, ty) + kldiv
+
             loss.backward()
             total_loss += loss.item()
             n_samples += (output.size(0) * data.m)
@@ -116,9 +141,9 @@ parser.add_argument('--residual_channels',type=int,default=16,help='residual cha
 parser.add_argument('--skip_channels',type=int,default=32,help='skip channels')
 parser.add_argument('--end_channels',type=int,default=64,help='end channels')
 parser.add_argument('--in_dim',type=int,default=1,help='inputs dimension')
-parser.add_argument('--seq_in_len',type=int,default=24*7,help='input sequence length')
-parser.add_argument('--seq_out_len',type=int,default=1,help='output sequence length')
-parser.add_argument('--horizon', type=int, default=3)
+parser.add_argument('--seq_in_len',type=int,default=64,help='input sequence length') # used to be 24 * 7
+parser.add_argument('--seq_out_len',type=int,default=64,help='output sequence length')
+parser.add_argument('--horizon', type=int, default=12)
 parser.add_argument('--layers',type=int,default=5,help='number of layers')
 
 parser.add_argument('--batch_size',type=int,default=32,help='batch size')

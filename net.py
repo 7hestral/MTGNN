@@ -1,9 +1,11 @@
 from layer import *
-
+from torch import nn
 
 class gtnet(nn.Module):
     def __init__(self, gcn_true, buildA_true, gcn_depth, num_nodes, device, predefined_A=None, static_feat=None, dropout=0.3, subgraph_size=20, node_dim=40, dilation_exponential=1, conv_channels=32, residual_channels=32, skip_channels=64, end_channels=128, seq_length=12, in_dim=2, out_dim=12, layers=3, propalpha=0.05, tanhalpha=3, layer_norm_affline=True):
         super(gtnet, self).__init__()
+        self.latent_embedding_size = 128
+        self.decoder_hidden_size = 512
         self.gcn_true = gcn_true
         self.buildA_true = buildA_true
         self.num_nodes = num_nodes
@@ -16,6 +18,13 @@ class gtnet(nn.Module):
         self.gconv1 = nn.ModuleList()
         self.gconv2 = nn.ModuleList()
         self.norm = nn.ModuleList()
+
+        self.mu_transform = nn.Linear(residual_channels * num_nodes, self.latent_embedding_size)
+        self.logvar_transform = nn.Linear(residual_channels * num_nodes, self.latent_embedding_size)
+
+        self.decoder_linear1 = nn.Linear(self.latent_embedding_size, self.decoder_hidden_size)
+        self.decoder_linear2 = nn.Linear(self.decoder_hidden_size, self.decoder_hidden_size)
+        self.decoder_linear3 = nn.Linear(self.decoder_hidden_size, out_dim * num_nodes)
         self.start_conv = nn.Conv2d(in_channels=in_dim,
                                     out_channels=residual_channels,
                                     kernel_size=(1, 1))
@@ -66,7 +75,7 @@ class gtnet(nn.Module):
                 new_dilation *= dilation_exponential
 
         self.layers = layers
-        self.end_conv_1 = nn.Conv2d(in_channels=skip_channels,
+        self.end_conv_1 = nn.Conv2d(in_channels=residual_channels,
                                              out_channels=end_channels,
                                              kernel_size=(1,1),
                                              bias=True)
@@ -93,7 +102,7 @@ class gtnet(nn.Module):
         if self.seq_length<self.receptive_field:
             input = nn.functional.pad(input,(self.receptive_field-self.seq_length,0,0,0))
 
-        print('input.shape:', input.shape)
+        # print('input.shape:', input.shape)
 
 
         if self.gcn_true:
@@ -106,10 +115,10 @@ class gtnet(nn.Module):
                 adp = self.predefined_A
 
         x = self.start_conv(input)
-        print('start_conv(input).shape:', x.shape)
+        # print('start_conv(input).shape:', x.shape)
         # skip = self.skip0(F.dropout(input, self.dropout, training=self.training))
         for i in range(self.layers):
-            print(i, 'round')
+            # print(i, 'round')
             # residual = x
             filter = self.filter_convs[i](x)
             filter = torch.tanh(filter)
@@ -117,7 +126,7 @@ class gtnet(nn.Module):
             gate = torch.sigmoid(gate)
             x = filter * gate
             x = F.dropout(x, self.dropout, training=self.training)
-            print('after time dilation', x.shape)
+            # print('after time dilation', x.shape)
             # s = x
             # s = self.skip_convs[i](s)
             # skip = s + skip
@@ -125,18 +134,44 @@ class gtnet(nn.Module):
                 x = self.gconv1[i](x, adp)+self.gconv2[i](x, adp.transpose(1,0))
             else:
                 x = self.residual_convs[i](x)
-            print('after gconv', x.shape)
+            # print('after gconv', x.shape)
             # x = x + residual[:, :, :, -x.size(3):]
             if idx is None:
                 x = self.norm[i](x,self.idx)
             else:
                 x = self.norm[i](x,idx)
 
-        skip = self.skipE(x)#  + skip
+        # skip = self.skipE(x)#  + skip
+        # only operate on idx
+        if idx is None:
+            x = x[:, :, idx, :]
+        else:
+            x = x[:, :, idx, :]
+        x = x.view(x.shape[0], -1)
+        mu = self.mu_transform(x)
+        logvar = self.logvar_transform(x)
 
+        # reparametrization
+        x = self.reparameterize(mu, logvar)
+        # decode
+        x = self.decoder_linear1(x)
+        x = F.relu(self.decoder_linear2(x))
+        x = self.decoder_linear3(x)
+        # print('skipE(x)', skip.shape)
+        # x = F.relu(skip)
+        # x = F.relu(self.end_conv_1(x))
+        # x = self.end_conv_2(x)
+        x = x.view(x.shape[0], self.num_nodes, -1)
+        # print("final x shape", x.shape)
+        return x, mu, logvar
 
-        print('skipE(x)', skip.shape)
-        x = F.relu(skip)
-        x = F.relu(self.end_conv_1(x))
-        x = self.end_conv_2(x)
-        return x
+    def reparameterize(self, mu, logvar):
+        if self.training:
+            # Get standard deviation
+            std = torch.exp(logvar)
+            # Returns random numbers from a normal distribution
+            eps = torch.randn_like(std)
+            # Return sampled values
+            return eps.mul(std).add_(mu)
+        else:
+            return mu

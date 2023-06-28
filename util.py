@@ -24,7 +24,10 @@ class DataLoaderS(object):
         self._split(int(train * self.n), int((train + valid) * self.n), self.n)
 
         self.scale = torch.from_numpy(self.scale).float()
-        tmp = self.test[1] * self.scale.expand(self.test[1].size(0), self.m)
+        print(self.scale.shape)
+        print(self.test[0].shape)
+        print(self.test[1].shape)
+        tmp = self.test[0] # * self.scale.expand(self.test[0].size(0), self.test[0].size(1), self.m)
 
         self.scale = self.scale.to(device)
         self.scale = Variable(self.scale)
