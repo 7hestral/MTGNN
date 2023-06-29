@@ -102,7 +102,7 @@ class gtnet(nn.Module):
         if self.seq_length<self.receptive_field:
             input = nn.functional.pad(input,(self.receptive_field-self.seq_length,0,0,0))
 
-        # print('input.shape:', input.shape)
+        print('input.shape:', input.shape)
 
 
         if self.gcn_true:
@@ -115,10 +115,10 @@ class gtnet(nn.Module):
                 adp = self.predefined_A
 
         x = self.start_conv(input)
-        # print('start_conv(input).shape:', x.shape)
+        print('start_conv(input).shape:', x.shape)
         # skip = self.skip0(F.dropout(input, self.dropout, training=self.training))
         for i in range(self.layers):
-            # print(i, 'round')
+            print(i, 'round')
             # residual = x
             filter = self.filter_convs[i](x)
             filter = torch.tanh(filter)
@@ -126,7 +126,7 @@ class gtnet(nn.Module):
             gate = torch.sigmoid(gate)
             x = filter * gate
             x = F.dropout(x, self.dropout, training=self.training)
-            # print('after time dilation', x.shape)
+            print('after time dilation', x.shape)
             # s = x
             # s = self.skip_convs[i](s)
             # skip = s + skip
@@ -134,7 +134,7 @@ class gtnet(nn.Module):
                 x = self.gconv1[i](x, adp)+self.gconv2[i](x, adp.transpose(1,0))
             else:
                 x = self.residual_convs[i](x)
-            # print('after gconv', x.shape)
+            print('after gconv', x.shape)
             # x = x + residual[:, :, :, -x.size(3):]
             if idx is None:
                 x = self.norm[i](x,self.idx)
@@ -143,17 +143,17 @@ class gtnet(nn.Module):
 
         # skip = self.skipE(x)#  + skip
         # only operate on idx
-        if idx is None:
-            x = x[:, :, idx, :]
-        else:
-            x = x[:, :, idx, :]
+        # if idx is None:
+        #     x = x[:, :, idx, :]
+        # else:
+        #     x = x[:, :, idx, :]
         x = x.view(x.shape[0], -1)
         mu = self.mu_transform(x)
         logvar = self.logvar_transform(x)
 
         # reparametrization
         x = self.reparameterize(mu, logvar)
-        # decode
+        # decode (TODO: use another )
         x = self.decoder_linear1(x)
         x = F.relu(self.decoder_linear2(x))
         x = self.decoder_linear3(x)
@@ -162,7 +162,7 @@ class gtnet(nn.Module):
         # x = F.relu(self.end_conv_1(x))
         # x = self.end_conv_2(x)
         x = x.view(x.shape[0], self.num_nodes, -1)
-        # print("final x shape", x.shape)
+        print("final x shape", x.shape)
         return x, mu, logvar
 
     def reparameterize(self, mu, logvar):

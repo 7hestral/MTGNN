@@ -141,8 +141,8 @@ parser.add_argument('--residual_channels',type=int,default=16,help='residual cha
 parser.add_argument('--skip_channels',type=int,default=32,help='skip channels')
 parser.add_argument('--end_channels',type=int,default=64,help='end channels')
 parser.add_argument('--in_dim',type=int,default=1,help='inputs dimension')
-parser.add_argument('--seq_in_len',type=int,default=64,help='input sequence length') # used to be 24 * 7
-parser.add_argument('--seq_out_len',type=int,default=64,help='output sequence length')
+parser.add_argument('--seq_in_len',type=int,default=128,help='input sequence length') # used to be 24 * 7
+parser.add_argument('--seq_out_len',type=int,default=128,help='output sequence length')
 parser.add_argument('--horizon', type=int, default=12)
 parser.add_argument('--layers',type=int,default=5,help='number of layers')
 
@@ -155,7 +155,7 @@ parser.add_argument('--clip',type=int,default=5,help='clip')
 parser.add_argument('--propalpha',type=float,default=0.05,help='prop alpha')
 parser.add_argument('--tanhalpha',type=float,default=3,help='tanh alpha')
 
-parser.add_argument('--epochs',type=int,default=1,help='')
+parser.add_argument('--epochs',type=int,default=3,help='')
 parser.add_argument('--num_split',type=int,default=1,help='number of splits for graphs')
 parser.add_argument('--step_size',type=int,default=100,help='step_size')
 
