@@ -26,16 +26,18 @@ def evaluate(data, X, Y, model, evaluateL2, evaluateL1, batch_size):
         with torch.no_grad():
             output, mu, logvar = model(X)
         output = torch.squeeze(output)
-        Y = torch.squeeze(X)
+        # Y = torch.squeeze(X)
         if len(output.shape)==1:
             output = output.unsqueeze(dim=0)
         if predict is None:
-            predict = output.reshape(output.shape[0], -1)
-            # test = Y
-            test = torch.squeeze(X).reshape(X.shape[0], -1)
+            predict = output# .reshape(output.shape[0], -1)
+            test = Y
+            # test = torch.squeeze(X).reshape(X.shape[0], -1)
         else:
-            predict = torch.cat((predict, output.reshape(output.shape[0], -1)))
-            test = torch.cat((test, torch.squeeze(X).reshape(X.shape[0], -1)))
+            predict = torch.cat((predict, output))
+            test = torch.cat((test, Y))
+            # predict = torch.cat((predict, output.reshape(output.shape[0], -1)))
+            # test = torch.cat((test, torch.squeeze(X).reshape(X.shape[0], -1)))
         # print('output.shape', output.shape)
         # print('data.m', data.m)
         scale = data.scale.expand(output.size(0), data.m)
@@ -95,18 +97,20 @@ def train(data, X, Y, model, criterion, optim, batch_size):
                 id = perm[j * num_sub:]
             id = torch.tensor(id).long().to(device)
             tx = X[:, :, id, :]
-            ty = torch.squeeze(tx)
-            print("ty.shape", ty.shape)
-            # ty = Y[:, id]
+            # ty = torch.squeeze(tx)
+            # print("ty.shape", ty.shape)
+            ty = Y[:, id]
             output, mu, logvar = model(tx,id)
+
             kldiv = kl_loss(mu, logvar)
             output = torch.squeeze(output)
             scale = data.scale.expand(output.size(0), data.m)
             scale = scale[:,id]
-            print(scale.shape)
+            # print(scale.shape)
             loss = criterion(output, ty) + kldiv
 
             loss.backward()
+            # exit()
             total_loss += loss.item()
             n_samples += (output.size(0) * data.m)
             grad_norm = optim.step()
@@ -142,7 +146,7 @@ parser.add_argument('--skip_channels',type=int,default=32,help='skip channels')
 parser.add_argument('--end_channels',type=int,default=64,help='end channels')
 parser.add_argument('--in_dim',type=int,default=1,help='inputs dimension')
 parser.add_argument('--seq_in_len',type=int,default=128,help='input sequence length') # used to be 24 * 7
-parser.add_argument('--seq_out_len',type=int,default=128,help='output sequence length')
+parser.add_argument('--seq_out_len',type=int,default=1,help='output sequence length')
 parser.add_argument('--horizon', type=int, default=12)
 parser.add_argument('--layers',type=int,default=5,help='number of layers')
 
