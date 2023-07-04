@@ -122,7 +122,7 @@ parser.add_argument('--data', type=str, default='./data/solar_AL.txt',
                     help='location of the data file')
 parser.add_argument('--log_interval', type=int, default=2000, metavar='N',
                     help='report interval')
-parser.add_argument('--save', type=str, default='model/model_last_half.pt',
+parser.add_argument('--save', type=str, default='/scratch/ssd001/home/ruizhu/model/model.pt',
                     help='path to save the final model')
 parser.add_argument('--optim', type=str, default='adam')
 parser.add_argument('--L1Loss', type=bool, default=True)
