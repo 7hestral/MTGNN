@@ -142,12 +142,12 @@ class dilated_inception(nn.Module):
         x = []
         for i in range(len(self.kernel_set)):
             x.append(self.tconv[i](input))
-        for i in range(len(self.kernel_set)):
-            print(f"x[{i}].shape before ... ops", x[i].shape)
+        # for i in range(len(self.kernel_set)):
+        #     print(f"x[{i}].shape before ... ops", x[i].shape)
         for i in range(len(self.kernel_set)):
             x[i] = x[i][...,-x[-1].size(3):]
-        for i in range(len(self.kernel_set)):
-            print(f"x[{i}].shape", x[i].shape)
+        # for i in range(len(self.kernel_set)):
+        #     print(f"x[{i}].shape", x[i].shape)
         x = torch.cat(x,dim=1)
         return x
 
@@ -155,7 +155,8 @@ class dilated_deconv(nn.Module):
     def __init__(self, cin, cout, dilation_factor=2):
         super(dilated_deconv, self).__init__()
         self.tconv = nn.ModuleList()
-        self.kernel_set = [2, 3, 6, 7]
+        # self.kernel_set = [2, 3, 6, 7]
+        self.kernel_set = [7, 8, 9, 10]
         cout = int(cout / len(self.kernel_set))
         for kern in self.kernel_set:
             self.tconv.append(nn.ConvTranspose2d(cin, cout, (1, kern), dilation=(1, dilation_factor)))
@@ -166,8 +167,8 @@ class dilated_deconv(nn.Module):
             x.append(self.tconv[i](input))
         for i in range(len(self.kernel_set)):
             x[i] = x[i][...,-x[0].size(3):]
-        for i in range(len(self.kernel_set)):
-            print(f"x[{i}].shape", x[i].shape)
+        # for i in range(len(self.kernel_set)):
+        #     print(f"x[{i}].shape", x[i].shape)
 
 
         x = torch.cat(x,dim=1)

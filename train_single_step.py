@@ -43,11 +43,13 @@ def evaluate(data, X, Y, model, evaluateL2, evaluateL1, batch_size):
         scale = data.scale.expand(output.size(0), data.m)
         total_loss += evaluateL2(output, Y).item()
         total_loss_l1 += evaluateL1(output, Y).item()
-        n_samples += (output.size(0) * data.m * args.seq_in_len)
+        # n_samples += (output.size(0) * data.m * args.seq_in_len)
+        n_samples += 1
 
+    # rse = math.sqrt(total_loss)#  / data.rse
+    # rae = (total_loss_l1) # / data.rae
     rse = math.sqrt(total_loss / n_samples)#  / data.rse
     rae = (total_loss_l1 / n_samples) # / data.rae
-
     predict = predict.data.cpu().numpy()
     Ytest = test.data.cpu().numpy()
     print("predict.shape", predict.shape)
@@ -79,6 +81,8 @@ def kl_loss(mu=None, logstd=None):
 
 def train(data, X, Y, model, criterion, optim, batch_size):
     model.train()
+    total_mse_loss = 0
+    total_kldiv_loss = 0
     total_loss = 0
     n_samples = 0
     iter = 0
@@ -107,8 +111,11 @@ def train(data, X, Y, model, criterion, optim, batch_size):
             scale = data.scale.expand(output.size(0), data.m)
             scale = scale[:,id]
             # print(scale.shape)
-            loss = criterion(output, ty) + kldiv
-
+            # TODO: save both loss
+            mse_loss = criterion(output, ty)
+            loss = mse_loss + kldiv
+            total_mse_loss += (mse_loss.item())
+            total_kldiv_loss += (kldiv.item())
             loss.backward()
             # exit()
             total_loss += loss.item()
@@ -118,7 +125,8 @@ def train(data, X, Y, model, criterion, optim, batch_size):
         if iter%100==0:
             print('iter:{:3d} | loss: {:.3f}'.format(iter,loss.item()/(output.size(0) * data.m)))
         iter += 1
-    return total_loss / n_samples
+    return total_loss / iter, total_mse_loss / iter, total_kldiv_loss / iter
+    # return total_loss / n_samples
 
 
 parser = argparse.ArgumentParser(description='PyTorch Time series forecasting')
@@ -159,7 +167,7 @@ parser.add_argument('--clip',type=int,default=5,help='clip')
 parser.add_argument('--propalpha',type=float,default=0.05,help='prop alpha')
 parser.add_argument('--tanhalpha',type=float,default=3,help='tanh alpha')
 
-parser.add_argument('--epochs',type=int,default=3,help='')
+parser.add_argument('--epochs',type=int,default=10,help='')
 parser.add_argument('--num_split',type=int,default=1,help='number of splits for graphs')
 parser.add_argument('--step_size',type=int,default=100,help='step_size')
 
@@ -187,11 +195,11 @@ def main():
     print('Number of model parameters is', nParams, flush=True)
 
     if args.L1Loss:
-        criterion = nn.L1Loss(size_average=False).to(device)
+        criterion = nn.L1Loss(size_average=True).to(device)
     else:
-        criterion = nn.MSELoss(size_average=False).to(device)
-    evaluateL2 = nn.MSELoss(size_average=False).to(device)
-    evaluateL1 = nn.L1Loss(size_average=False).to(device)
+        criterion = nn.MSELoss(size_average=True).to(device)
+    evaluateL2 = nn.MSELoss(size_average=True).to(device)
+    evaluateL1 = nn.L1Loss(size_average=True).to(device)
 
 
     best_val = 10000000
@@ -202,9 +210,13 @@ def main():
     # At any point you can hit Ctrl + C to break out of training early.
     try:
         print('begin training')
+        mse_loss_lst = []
+        kldiv_loss_lst = []
         for epoch in range(1, args.epochs + 1):
             epoch_start_time = time.time()
-            train_loss = train(Data, Data.train[0], Data.train[1], model, criterion, optim, args.batch_size)
+            train_loss, train_mse_loss, train_kldiv_loss = train(Data, Data.train[0], Data.train[1], model, criterion, optim, args.batch_size)
+            mse_loss_lst.append(train_mse_loss)
+            kldiv_loss_lst.append(train_kldiv_loss)
             val_loss, val_rae, val_corr = evaluate(Data, Data.valid[0], Data.valid[1], model, evaluateL2, evaluateL1,
                                                args.batch_size)
             print(
@@ -220,6 +232,8 @@ def main():
                 test_acc, test_rae, test_corr = evaluate(Data, Data.test[0], Data.test[1], model, evaluateL2, evaluateL1,
                                                      args.batch_size)
                 print("test rse {:5.4f} | test rae {:5.4f} | test corr {:5.4f}".format(test_acc, test_rae, test_corr), flush=True)
+        print('mse_loss_lst', mse_loss_lst)
+        print('kldiv_loss_lst', kldiv_loss_lst)
 
     except KeyboardInterrupt:
         print('-' * 89)

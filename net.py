@@ -30,15 +30,20 @@ class gtnet(nn.Module):
 
         pooling_kernel_size = 7
         last_dim = 2**layers
-        self.pooling = nn.MaxPool2d(kernel_size=(1, pooling_kernel_size))
-        intermediate_channel = ((last_dim - (pooling_kernel_size - 1) - 1) // pooling_kernel_size + 1) * residual_channels
-        self.end_conv_1 = nn.Conv2d(in_channels=intermediate_channel,
-                                     out_channels=intermediate_channel//2,
-                                     kernel_size=(1,1),
+        self.pooling = nn.AvgPool2d(kernel_size=(1, pooling_kernel_size))
+        # intermediate_channel = ((last_dim - (pooling_kernel_size - 1) - 1) // pooling_kernel_size + 1) * residual_channels
+        # intermediate_channel = 16 * 32
+        self.end_conv_1 = nn.Conv2d(in_channels=residual_channels,
+                                     out_channels=residual_channels,
+                                     kernel_size=(1,7),
                                      bias=True)
-        self.end_conv_2 = nn.Conv2d(in_channels=intermediate_channel // 2,
+        self.end_conv_2 = nn.Conv2d(in_channels=residual_channels,
                                   out_channels=out_dim,
                                   kernel_size=(1, 1),
+                                  bias=True)
+        self.end_conv_3 = nn.Conv2d(in_channels=residual_channels,
+                                  out_channels=residual_channels,
+                                  kernel_size=(1, 5), dilation=(1, 6),
                                   bias=True)
 
 
@@ -55,6 +60,7 @@ class gtnet(nn.Module):
 
         self.seq_length = seq_length
         kernel_size = 7
+        dilation_lst = []
         if dilation_exponential>1:
             self.receptive_field = int(1+(kernel_size-1)*(dilation_exponential**layers-1)/(dilation_exponential-1))
         else:
@@ -74,6 +80,8 @@ class gtnet(nn.Module):
 
                 self.filter_convs.append(dilated_inception(residual_channels, conv_channels, dilation_factor=new_dilation))
                 self.gate_convs.append(dilated_inception(residual_channels, conv_channels, dilation_factor=new_dilation))
+                dilation_lst.append(new_dilation)
+                
                 # self.residual_convs.append(nn.Conv2d(in_channels=conv_channels,
                 #                                     out_channels=residual_channels,
                 #                                  kernel_size=(1, 1)))
@@ -96,21 +104,22 @@ class gtnet(nn.Module):
                     self.norm.append(LayerNorm((residual_channels, num_nodes, self.receptive_field - rf_size_j + 1),elementwise_affine=layer_norm_affline))
 
                 new_dilation *= dilation_exponential
-
+        print('dilation_lst', dilation_lst)
+        dilation_lst.reverse()
         for i in range(1):
             if dilation_exponential>1:
                 rf_size_i = int(1 + i*(kernel_size-1)*(dilation_exponential**layers-1)/(dilation_exponential-1))
             else:
                 rf_size_i = i*layers*(kernel_size-1)+1
-            new_dilation = 1
+            
             for j in range(1,layers+1):
                 if dilation_exponential > 1:
                     rf_size_j = int(rf_size_i + (kernel_size-1)*(dilation_exponential**j-1)/(dilation_exponential-1))
                 else:
                     rf_size_j = rf_size_i+j*(kernel_size-1)
 
-                self.decoder_filter_convs.append(dilated_deconv(residual_channels, conv_channels, dilation_factor=new_dilation))
-                self.decoder_gate_convs.append(dilated_deconv(residual_channels, conv_channels, dilation_factor=new_dilation))
+                self.decoder_filter_convs.append(dilated_deconv(residual_channels, conv_channels, dilation_factor=dilation_lst[j-1]))
+                self.decoder_gate_convs.append(dilated_deconv(residual_channels, conv_channels, dilation_factor=dilation_lst[j-1]))
 
                 if self.gcn_true:
                     self.decoder_gconv1.append(mixprop(conv_channels, residual_channels, gcn_depth, dropout, propalpha))
@@ -121,7 +130,6 @@ class gtnet(nn.Module):
                 else:
                     self.decoder_norm.append(LayerNorm((residual_channels, num_nodes, self.receptive_field - rf_size_j + 1),elementwise_affine=layer_norm_affline))
 
-                new_dilation *= dilation_exponential
 
         self.layers = layers
         # self.end_conv_1 = nn.Conv2d(in_channels=residual_channels,
@@ -202,7 +210,7 @@ class gtnet(nn.Module):
 
         # reparametrization
         x = self.reparameterize(mu, logvar)
-        # decode (TODO: use another )
+        # decode (TODO: recompute kernel size for decoder)
         x = x.view(x.shape[0], -1, self.num_nodes, 1)
         for i in range(self.layers):
             print(i, 'round')
@@ -227,20 +235,26 @@ class gtnet(nn.Module):
         # print('after transpose', x.shape)
         # x = x.reshape(x.shape[0], x.shape[1], -1)
         # x = x.unsqueeze(1)
-        x = self.pooling(x)
-        print('after pooling', x.shape)
-        x = x.transpose(2,3)
-        x = x.reshape(x.shape[0], -1, self.num_nodes, 1)
-
+        # x = self.pooling(x)
+        # print('after pooling', x.shape)
+        
+        # x = x.transpose(2,3)
+        # print('after transpose', x.shape)
+        # x = x.reshape(x.shape[0], -1, self.num_nodes, 1)
+        # print('after reshape', x.shape)
         # x = self.decoder_linear1(x)
         # x = F.relu(self.decoder_linear2(x))
         # x = self.decoder_linear3(x)
         # print('skipE(x)', skip.shape)
         # x = F.relu(skip)
         x = F.relu(self.end_conv_1(x))
+        x = self.pooling(x)
+        x = self.end_conv_3(x)
         x = self.end_conv_2(x)
         # x = x.view(x.shape[0], self.num_nodes, -1)
         print("final x shape", x.shape)
+        
+        # x = x[:, :, :, 0]
         return x, mu, logvar
 
     def reparameterize(self, mu, logvar):
