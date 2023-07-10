@@ -28,6 +28,9 @@ class gtnet(nn.Module):
         self.mu_transform = nn.Linear(residual_channels * num_nodes, residual_channels * num_nodes)
         self.logvar_transform = nn.Linear(residual_channels * num_nodes, residual_channels * num_nodes)
 
+        self.out_channel_size_lst = [residual_channels] * layers
+        self.out_channel_size_lst[-1] = 2
+
         pooling_kernel_size = 7
         last_dim = 2**layers
         self.pooling = nn.AvgPool2d(kernel_size=(1, pooling_kernel_size))
@@ -93,19 +96,29 @@ class gtnet(nn.Module):
                 #     self.skip_convs.append(nn.Conv2d(in_channels=conv_channels,
                 #                                     out_channels=skip_channels,
                 #                                     kernel_size=(1, self.receptive_field-rf_size_j+1)))
+                # if self.gcn_true:
+                #     self.gconv1.append(mixprop(conv_channels, residual_channels, gcn_depth, dropout, propalpha))
+                #     self.gconv2.append(mixprop(conv_channels, residual_channels, gcn_depth, dropout, propalpha))
 
+                # if self.seq_length>self.receptive_field:
+                #     self.norm.append(LayerNorm((residual_channels, num_nodes, self.seq_length - rf_size_j + 1),elementwise_affine=layer_norm_affline))
+                # else:
+                #     self.norm.append(LayerNorm((residual_channels, num_nodes, self.receptive_field - rf_size_j + 1),elementwise_affine=layer_norm_affline))
                 if self.gcn_true:
-                    self.gconv1.append(mixprop(conv_channels, residual_channels, gcn_depth, dropout, propalpha))
-                    self.gconv2.append(mixprop(conv_channels, residual_channels, gcn_depth, dropout, propalpha))
+                    self.gconv1.append(mixprop(conv_channels, self.out_channel_size_lst[j-1], gcn_depth, dropout, propalpha))
+                    self.gconv2.append(mixprop(conv_channels, self.out_channel_size_lst[j-1], gcn_depth, dropout, propalpha))
 
                 if self.seq_length>self.receptive_field:
-                    self.norm.append(LayerNorm((residual_channels, num_nodes, self.seq_length - rf_size_j + 1),elementwise_affine=layer_norm_affline))
+                    self.norm.append(LayerNorm((self.out_channel_size_lst[j-1], num_nodes, self.seq_length - rf_size_j + 1),elementwise_affine=layer_norm_affline))
                 else:
-                    self.norm.append(LayerNorm((residual_channels, num_nodes, self.receptive_field - rf_size_j + 1),elementwise_affine=layer_norm_affline))
+                    self.norm.append(LayerNorm((self.out_channel_size_lst[j-1], num_nodes, self.receptive_field - rf_size_j + 1),elementwise_affine=layer_norm_affline))
 
                 new_dilation *= dilation_exponential
         print('dilation_lst', dilation_lst)
         dilation_lst.reverse()
+        # self.out_channel_size_lst.reverse()
+        self.out_channel_size_lst = [1] + [residual_channels] * layers
+        print(self.out_channel_size_lst)
         for i in range(1):
             if dilation_exponential>1:
                 rf_size_i = int(1 + i*(kernel_size-1)*(dilation_exponential**layers-1)/(dilation_exponential-1))
@@ -118,17 +131,25 @@ class gtnet(nn.Module):
                 else:
                     rf_size_j = rf_size_i+j*(kernel_size-1)
 
-                self.decoder_filter_convs.append(dilated_deconv(residual_channels, conv_channels, dilation_factor=dilation_lst[j-1]))
-                self.decoder_gate_convs.append(dilated_deconv(residual_channels, conv_channels, dilation_factor=dilation_lst[j-1]))
+                self.decoder_filter_convs.append(dilated_deconv(self.out_channel_size_lst[j-1], self.out_channel_size_lst[j], dilation_factor=dilation_lst[j-1]))
+                self.decoder_gate_convs.append(dilated_deconv(self.out_channel_size_lst[j-1], self.out_channel_size_lst[j], dilation_factor=dilation_lst[j-1]))
 
                 if self.gcn_true:
-                    self.decoder_gconv1.append(mixprop(conv_channels, residual_channels, gcn_depth, dropout, propalpha))
-                    self.decoder_gconv2.append(mixprop(conv_channels, residual_channels, gcn_depth, dropout, propalpha))
+                    self.decoder_gconv1.append(mixprop(self.out_channel_size_lst[j], residual_channels, gcn_depth, dropout, propalpha))
+                    self.decoder_gconv2.append(mixprop(self.out_channel_size_lst[j], residual_channels, gcn_depth, dropout, propalpha))
 
                 if self.seq_length>self.receptive_field:
                     self.decoder_norm.append(LayerNorm((residual_channels, num_nodes, self.seq_length - rf_size_j + 1),elementwise_affine=layer_norm_affline))
                 else:
                     self.decoder_norm.append(LayerNorm((residual_channels, num_nodes, self.receptive_field - rf_size_j + 1),elementwise_affine=layer_norm_affline))
+                # if self.gcn_true:
+                #     self.decoder_gconv1.append(mixprop(conv_channels, residual_channels, gcn_depth, dropout, propalpha))
+                #     self.decoder_gconv2.append(mixprop(conv_channels, residual_channels, gcn_depth, dropout, propalpha))
+
+                # if self.seq_length>self.receptive_field:
+                #     self.decoder_norm.append(LayerNorm((residual_channels, num_nodes, self.seq_length - rf_size_j + 1),elementwise_affine=layer_norm_affline))
+                # else:
+                #     self.decoder_norm.append(LayerNorm((residual_channels, num_nodes, self.receptive_field - rf_size_j + 1),elementwise_affine=layer_norm_affline))
 
 
         self.layers = layers
@@ -204,14 +225,23 @@ class gtnet(nn.Module):
         #     x = x[:, :, idx, :]
         # else:
         #     x = x[:, :, idx, :]
-        x = x.view(x.shape[0], -1)
-        mu = self.mu_transform(x)
-        logvar = self.logvar_transform(x)
-
+        mu, logvar = torch.split(x, split_size_or_sections=1, dim=1)
+ 
+        # x = x.view(x.shape[0], -1)
+        mu = mu.squeeze()
+        logvar = logvar.squeeze()
+        # mu = self.mu_transform(x)
+        # logvar = self.logvar_transform(x)
+        print('mu', mu.shape)
+        print('logvar', logvar.shape)
         # reparametrization
         x = self.reparameterize(mu, logvar)
+        print('reparam', x.shape)
         # decode (TODO: recompute kernel size for decoder)
-        x = x.view(x.shape[0], -1, self.num_nodes, 1)
+        x = x.unsqueeze(1)
+        x = x.unsqueeze(-1)
+        print('unsqueeze', x.shape)
+        # x = x.view(x.shape[0], -1, self.num_nodes, 1)
         for i in range(self.layers):
             print(i, 'round')
             # residual = x
