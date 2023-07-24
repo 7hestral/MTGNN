@@ -2,11 +2,12 @@ from layer import *
 from torch import nn
 
 class gtnet(nn.Module):
-    def __init__(self, gcn_true, buildA_true, gcn_depth, num_nodes, device, predefined_A=None, static_feat=None, dropout=0.3, subgraph_size=20, node_dim=40, dilation_exponential=1, conv_channels=32, residual_channels=32, skip_channels=64, end_channels=128, seq_length=12, in_dim=2, out_dim=12, layers=3, propalpha=0.05, tanhalpha=3, layer_norm_affline=True):
+    def __init__(self, gcn_true, buildA_true, gcn_depth, num_nodes, device, predefined_A=None, static_feat=None, dropout=0.3, subgraph_size=20, node_dim=40, dilation_exponential=1, conv_channels=32, residual_channels=32, skip_channels=64, end_channels=128, seq_length=12, in_dim=2, out_dim=12, layers=3, propalpha=0.05, tanhalpha=3, layer_norm_affline=True, variational_true=True):
         super(gtnet, self).__init__()
         self.latent_embedding_size = 128
         self.decoder_hidden_size = 512
         self.gcn_true = gcn_true
+        self.variational_true = variational_true
         self.buildA_true = buildA_true
         self.num_nodes = num_nodes
         self.dropout = dropout
@@ -25,11 +26,14 @@ class gtnet(nn.Module):
         self.decoder_gconv2 = nn.ModuleList()
         self.decoder_norm = nn.ModuleList()
 
+        self.softplus = nn.Softplus()
+
         self.mu_transform = nn.Linear(residual_channels * num_nodes, residual_channels * num_nodes)
         self.logvar_transform = nn.Linear(residual_channels * num_nodes, residual_channels * num_nodes)
 
         self.out_channel_size_lst = [residual_channels] * layers
-        self.out_channel_size_lst[-1] = 2
+        if self.variational_true:
+            self.out_channel_size_lst[-1] = 2 * residual_channels
 
         pooling_kernel_size = 7
         last_dim = 2**layers
@@ -61,6 +65,7 @@ class gtnet(nn.Module):
                                     kernel_size=(1, 1))
         self.gc = graph_constructor(num_nodes, subgraph_size, node_dim, device, alpha=tanhalpha, static_feat=static_feat)
 
+        self.gc_decoder = graph_constructor(num_nodes, subgraph_size, node_dim, device, alpha=tanhalpha, static_feat=static_feat)
         self.seq_length = seq_length
         kernel_size = 7
         dilation_lst = []
@@ -117,7 +122,7 @@ class gtnet(nn.Module):
         print('dilation_lst', dilation_lst)
         dilation_lst.reverse()
         # self.out_channel_size_lst.reverse()
-        self.out_channel_size_lst = [1] + [residual_channels] * layers
+        self.out_channel_size_lst = [residual_channels] + [residual_channels] * layers
         print(self.out_channel_size_lst)
         for i in range(1):
             if dilation_exponential>1:
@@ -180,23 +185,25 @@ class gtnet(nn.Module):
         if self.seq_length<self.receptive_field:
             input = nn.functional.pad(input,(self.receptive_field-self.seq_length,0,0,0))
 
-        print('input.shape:', input.shape)
+        # print('input.shape:', input.shape)
 
 
         if self.gcn_true:
             if self.buildA_true:
                 if idx is None:
                     adp = self.gc(self.idx)
+                    adp_decoder = self.gc_decoder(self.idx)
                 else:
                     adp = self.gc(idx)
+                    adp_decoder = self.gc_decoder(idx)
             else:
                 adp = self.predefined_A
 
         x = self.start_conv(input)
-        print('start_conv(input).shape:', x.shape)
+        # print('start_conv(input).shape:', x.shape)
         # skip = self.skip0(F.dropout(input, self.dropout, training=self.training))
         for i in range(self.layers):
-            print(i, 'round')
+            # print(i, 'round')
             # residual = x
             filter = self.filter_convs[i](x)
             filter = torch.tanh(filter)
@@ -204,46 +211,56 @@ class gtnet(nn.Module):
             gate = torch.sigmoid(gate)
             x = filter * gate
             x = F.dropout(x, self.dropout, training=self.training)
-            print('after time dilation', x.shape)
+            # print('after time dilation', x.shape)
             # s = x
             # s = self.skip_convs[i](s)
             # skip = s + skip
             if self.gcn_true:
+                # print('x.shape', x.shape)
+                # print('adp.shape', adp.shape)
                 x = self.gconv1[i](x, adp)+self.gconv2[i](x, adp.transpose(1,0))
             else:
                 x = self.residual_convs[i](x)
-            print('after gconv', x.shape)
+            # print('after gconv', x.shape)
             # x = x + residual[:, :, :, -x.size(3):]
             if idx is None:
                 x = self.norm[i](x,self.idx)
             else:
                 x = self.norm[i](x,idx)
-            print('after norm', x.shape)
+            # print('after norm', x.shape)
         # skip = self.skipE(x)#  + skip
         # only operate on idx
         # if idx is None:
         #     x = x[:, :, idx, :]
         # else:
         #     x = x[:, :, idx, :]
-        mu, logvar = torch.split(x, split_size_or_sections=1, dim=1)
- 
-        # x = x.view(x.shape[0], -1)
-        mu = mu.squeeze()
-        logvar = logvar.squeeze()
-        # mu = self.mu_transform(x)
-        # logvar = self.logvar_transform(x)
-        print('mu', mu.shape)
-        print('logvar', logvar.shape)
-        # reparametrization
-        x = self.reparameterize(mu, logvar)
-        print('reparam', x.shape)
-        # decode (TODO: recompute kernel size for decoder)
-        x = x.unsqueeze(1)
-        x = x.unsqueeze(-1)
-        print('unsqueeze', x.shape)
-        # x = x.view(x.shape[0], -1, self.num_nodes, 1)
+        # x = self.softplus(x)
+        # a = x[:, :self.out_channel_size_lst[0], :, :]
+        # b = x[:, self.out_channel_size_lst[0]:, :, :]
+        
+        mu = None
+        logvar = None
+        if self.variational_true:
+            # mu, logvar = torch.split(x, split_size_or_sections=1, dim=1)
+            mu = x[:, :self.out_channel_size_lst[0], :, :]
+            logvar = x[:, self.out_channel_size_lst[0]:, :, :]
+            # x = x.view(x.shape[0], -1)
+            # mu = mu.squeeze()
+            # logvar = logvar.squeeze()
+            # mu = self.mu_transform(x)
+            # logvar = self.logvar_transform(x)
+            # print('mu', mu.shape)
+            # print('logvar', logvar.shape)
+            # reparametrization
+            x = self.reparameterize(mu, logvar)
+        # print('reparam', x.shape)
+        # decode
+        # x = x.unsqueeze(1)
+        # x = x.unsqueeze(-1)
+        # print('unsqueeze', x.shape)
+        x = x.view(x.shape[0], -1, self.num_nodes, 1)
         for i in range(self.layers):
-            print(i, 'round')
+            # print(i, 'round')
             # residual = x
             filter = self.decoder_filter_convs[i](x)
             filter = torch.tanh(filter)
@@ -251,16 +268,16 @@ class gtnet(nn.Module):
             gate = torch.sigmoid(gate)
             x = filter * gate
             x = F.dropout(x, self.dropout, training=self.training)
-            print('after time deconv', x.shape)
+            # print('after time deconv', x.shape)
             if self.gcn_true:
-                x = self.decoder_gconv1[i](x, adp) + self.decoder_gconv2[i](x, adp.transpose(1, 0))
-            print('after gconv', x.shape)
+                x = self.decoder_gconv1[i](x, adp_decoder) + self.decoder_gconv2[i](x, adp_decoder.transpose(1, 0))
+            # print('after gconv', x.shape)
             if idx is None:
                 x = self.decoder_norm[i](x, self.idx)
             else:
                 x = self.decoder_norm[i](x, idx)
-            print('after decoder norm', x.shape)
-
+            # print('after decoder norm', x.shape)
+        print('after decoder', x.shape)
         # x = x.transpose(1,2)
         # print('after transpose', x.shape)
         # x = x.reshape(x.shape[0], x.shape[1], -1)
@@ -282,9 +299,9 @@ class gtnet(nn.Module):
         x = self.end_conv_3(x)
         x = self.end_conv_2(x)
         # x = x.view(x.shape[0], self.num_nodes, -1)
-        print("final x shape", x.shape)
+        # print("final x shape", x.shape)
         
-        # x = x[:, :, :, 0]
+        x = x[:, :, :, 0]
         return x, mu, logvar
 
     def reparameterize(self, mu, logvar):

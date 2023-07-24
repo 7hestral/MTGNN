@@ -12,6 +12,7 @@ from util import *
 from trainer import Optim
 
 beta_kldiv = 0.5
+print('beta_kldiv', beta_kldiv)
 def evaluate(data, X, Y, model, evaluateL2, evaluateL1, batch_size):
     model.eval()
     total_loss = 0
@@ -23,28 +24,44 @@ def evaluate(data, X, Y, model, evaluateL2, evaluateL1, batch_size):
     for X, Y in data.get_batches(X, Y, batch_size, False):
         X = torch.unsqueeze(X,dim=1)
         X = X.transpose(2,3)
-        with torch.no_grad():
-            output, mu, logvar = model(X)
-        output = torch.squeeze(output)
-        # Y = torch.squeeze(X)
-        if len(output.shape)==1:
-            output = output.unsqueeze(dim=0)
-        if predict is None:
-            predict = output# .reshape(output.shape[0], -1)
-            test = Y
-            # test = torch.squeeze(X).reshape(X.shape[0], -1)
-        else:
-            predict = torch.cat((predict, output))
-            test = torch.cat((test, Y))
-            # predict = torch.cat((predict, output.reshape(output.shape[0], -1)))
-            # test = torch.cat((test, torch.squeeze(X).reshape(X.shape[0], -1)))
-        # print('output.shape', output.shape)
-        # print('data.m', data.m)
-        scale = data.scale.expand(output.size(0), data.m)
-        total_loss += evaluateL2(output, Y).item()
-        total_loss_l1 += evaluateL1(output, Y).item()
-        # n_samples += (output.size(0) * data.m * args.seq_in_len)
-        n_samples += 1
+        perm = np.random.permutation(range(args.num_nodes))
+        num_sub = int(args.num_nodes / args.num_split)
+
+        for j in range(args.num_split):
+            if j != args.num_split - 1:
+                id = perm[j * num_sub:(j + 1) * num_sub]
+            else:
+                id = perm[j * num_sub:]
+            id = torch.tensor(id).long().to(device)
+            tx = X[:, :, id, :]
+            # ty = torch.squeeze(tx)
+            # print("ty.shape", ty.shape)
+            ty = Y[:, id]
+            with torch.no_grad():
+                output, mu, logvar = model(tx, id)
+            output = torch.squeeze(output)
+
+            # print("validation mu", mu)
+            # print("validation logvar", logvar)
+            # Y = torch.squeeze(X)
+            if len(output.shape)==1:
+                output = output.unsqueeze(dim=0)
+            if predict is None:
+                predict = output# .reshape(output.shape[0], -1)
+                test = ty
+                # test = torch.squeeze(X).reshape(X.shape[0], -1)
+            else:
+                predict = torch.cat((predict, output))
+                test = torch.cat((test, ty))
+                # predict = torch.cat((predict, output.reshape(output.shape[0], -1)))
+                # test = torch.cat((test, torch.squeeze(X).reshape(X.shape[0], -1)))
+            # print('output.shape', output.shape)
+            # print('data.m', data.m)
+            scale = data.scale.expand(output.size(0), data.m)
+            total_loss += evaluateL2(output, ty).item()
+            total_loss_l1 += evaluateL1(output, ty).item()
+            # n_samples += (output.size(0) * data.m * args.seq_in_len)
+            n_samples += 1
 
     # rse = math.sqrt(total_loss)#  / data.rse
     # rae = (total_loss_l1) # / data.rae
@@ -73,7 +90,8 @@ def kl_loss(mu=None, logstd=None):
     """
     MAX_LOGSTD = 10
     logstd =  logstd.clamp(max=MAX_LOGSTD)
-    kl_div = -beta_kldiv * torch.mean(torch.sum(1 + 2 * logstd - mu**2 - logstd.exp()**2, dim=1))
+    
+    kl_div = -(beta_kldiv / args.num_nodes) * torch.mean(torch.sum(1 + 2 * logstd - mu**2 - logstd.exp()**2, dim=1))
 
     # Limit numeric errors
     kl_div = kl_div.clamp(max=1000)
@@ -106,7 +124,10 @@ def train(data, X, Y, model, criterion, optim, batch_size):
             ty = Y[:, id]
             output, mu, logvar = model(tx,id)
 
-            kldiv = kl_loss(mu, logvar)
+            if args.variational_true:
+                kldiv = kl_loss(mu, logvar)
+            else:
+                kldiv = torch.tensor([0]).to(device)
             output = torch.squeeze(output)
             scale = data.scale.expand(output.size(0), data.m)
             scale = scale[:,id]
@@ -123,9 +144,9 @@ def train(data, X, Y, model, criterion, optim, batch_size):
             grad_norm = optim.step()
 
         if iter%100==0:
-            print('iter:{:3d} | loss: {:.3f}'.format(iter,loss.item()/(output.size(0) * data.m)))
+            print('iter:{:3d} | loss: {:.3f}'.format(iter,loss.item()/100))
         iter += 1
-    return total_loss / iter, total_mse_loss / iter, total_kldiv_loss / iter
+    return total_loss / (iter * args.num_split), total_mse_loss / (iter * args.num_split), total_kldiv_loss / (iter * args.num_split)
     # return total_loss / n_samples
 
 
@@ -168,25 +189,25 @@ parser.add_argument('--propalpha',type=float,default=0.05,help='prop alpha')
 parser.add_argument('--tanhalpha',type=float,default=3,help='tanh alpha')
 
 parser.add_argument('--epochs',type=int,default=10,help='')
-parser.add_argument('--num_split',type=int,default=1,help='number of splits for graphs')
+parser.add_argument('--num_split',type=int,default=3,help='number of splits for graphs')
 parser.add_argument('--step_size',type=int,default=100,help='step_size')
-
-
+parser.add_argument('--variational_true', type=bool, default=True, help='whether to use vae')
+parser.add_argument('--multi_step_true', type=bool, default=False, help='whether to predict multiple steps')
 args = parser.parse_args()
 device = torch.device(args.device)
 torch.set_num_threads(3)
 
 def main():
 
-    Data = DataLoaderS(args.data, 0.6, 0.2, device, args.horizon, args.seq_in_len, args.normalize)
-
+    Data = DataLoaderS(args.data, 0.6, 0.2, device, args.horizon, args.seq_in_len, args.normalize, multi_step_true=args.multi_step_true)
+    print(args)
     model = gtnet(args.gcn_true, args.buildA_true, args.gcn_depth, args.num_nodes,
                   device, dropout=args.dropout, subgraph_size=args.subgraph_size,
                   node_dim=args.node_dim, dilation_exponential=args.dilation_exponential,
                   conv_channels=args.conv_channels, residual_channels=args.residual_channels,
                   skip_channels=args.skip_channels, end_channels= args.end_channels,
                   seq_length=args.seq_in_len, in_dim=args.in_dim, out_dim=args.seq_out_len,
-                  layers=args.layers, propalpha=args.propalpha, tanhalpha=args.tanhalpha, layer_norm_affline=False)
+                  layers=args.layers, propalpha=args.propalpha, tanhalpha=args.tanhalpha, layer_norm_affline=False, variational_true=args.variational_true)
     model = model.to(device)
 
     print(args)

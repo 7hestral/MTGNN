@@ -6,12 +6,14 @@ import torch
 from scipy.sparse import linalg
 from torch.autograd import Variable
 
+
 def normal_std(x):
     return x.std() * np.sqrt((len(x) - 1.)/(len(x)))
 
 class DataLoaderS(object):
     # train and valid is the ratio of training set and validation set. test = 1 - train - valid
-    def __init__(self, file_name, train, valid, device, horizon, window, normalize=2):
+    def __init__(self, file_name, train, valid, device, horizon, window, normalize=2, multi_step_true=False):
+        self.multi_step_true = multi_step_true
         self.P = window
         self.h = horizon
         fin = open(file_name)
@@ -63,16 +65,23 @@ class DataLoaderS(object):
 
     def _batchify(self, idx_set, horizon):
         n = len(idx_set)
+        print(idx_set)
         X = torch.zeros((n, self.P, self.m))
-        Y = torch.zeros((n, self.m))
+        if self.multi_step_true:
+            Y = torch.zeros((n, horizon, self.m))
+        else:
+            Y = torch.zeros((n, self.m))
         for i in range(n):
             end = idx_set[i] - self.h + 1
             start = end - self.P
             X[i, :, :] = torch.from_numpy(self.dat[start:end, :])
-            Y[i, :] = torch.from_numpy(self.dat[idx_set[i], :])
+            if self.multi_step_true:
+                Y[i, :, :] = torch.from_numpy(self.dat[end:idx_set[i]+1, :])
+            else:
+                Y[i, :] = torch.from_numpy(self.dat[idx_set[i], :])
         return [X, Y]
 
-    def get_batches(self, inputs, targets, batch_size, shuffle=True):
+    def get_batches(self, inputs, targets, batch_size, shuffle=False):
         length = len(inputs)
         if shuffle:
             index = torch.randperm(length)
@@ -296,4 +305,9 @@ def normal_std(x):
 
 
 
-            
+def mean_absolute_percentage_error(y_true, y_pred, epsilon=0.001): 
+
+
+    y_true[y_true < epsilon] = epsilon
+
+    return np.mean(np.abs((y_true - y_pred) / y_true)) * 100            
