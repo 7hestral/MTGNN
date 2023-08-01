@@ -4,8 +4,8 @@ import argparse
 import time
 from util import *
 from trainer import Trainer
-from net import gtnet
-
+from mtgnn_net import gtnet
+from net import gtnet as mynet
 def str_to_bool(value):
     if isinstance(value, bool):
         return value
@@ -53,7 +53,7 @@ parser.add_argument('--step_size1',type=int,default=2500,help='step_size')
 parser.add_argument('--step_size2',type=int,default=100,help='step_size')
 
 
-parser.add_argument('--epochs',type=int,default=100,help='')
+parser.add_argument('--epochs',type=int,default=50,help='')
 parser.add_argument('--print_every',type=int,default=50,help='')
 parser.add_argument('--seed',type=int,default=101,help='random seed')
 parser.add_argument('--save',type=str,default='./save/',help='save path')
@@ -91,15 +91,24 @@ def main(runid):
     # else:
     #     static_feat = None
 
-    model = gtnet(args.gcn_true, args.buildA_true, args.gcn_depth, args.num_nodes,
-                  device, predefined_A=predefined_A,
-                  dropout=args.dropout, subgraph_size=args.subgraph_size,
-                  node_dim=args.node_dim,
-                  dilation_exponential=args.dilation_exponential,
-                  conv_channels=args.conv_channels, residual_channels=args.residual_channels,
-                  skip_channels=args.skip_channels, end_channels= args.end_channels,
-                  seq_length=args.seq_in_len, in_dim=args.in_dim, out_dim=args.seq_out_len,
-                  layers=args.layers, propalpha=args.propalpha, tanhalpha=args.tanhalpha, layer_norm_affline=True)
+    # model = gtnet(args.gcn_true, args.buildA_true, args.gcn_depth, args.num_nodes,
+    #               device, predefined_A=predefined_A,
+    #               dropout=args.dropout, subgraph_size=args.subgraph_size,
+    #               node_dim=args.node_dim,
+    #               dilation_exponential=args.dilation_exponential,
+    #               conv_channels=args.conv_channels, residual_channels=args.residual_channels,
+    #               skip_channels=args.skip_channels, end_channels= args.end_channels,
+    #               seq_length=args.seq_in_len, in_dim=args.in_dim, out_dim=args.seq_out_len,
+    #               layers=args.layers, propalpha=args.propalpha, tanhalpha=args.tanhalpha, layer_norm_affline=True)
+    model = mynet(args.gcn_true, args.buildA_true, args.gcn_depth, args.num_nodes,
+                device, predefined_A=predefined_A,
+                dropout=args.dropout, subgraph_size=args.subgraph_size,
+                node_dim=args.node_dim,
+                dilation_exponential=args.dilation_exponential,
+                conv_channels=args.conv_channels, residual_channels=args.residual_channels,
+                skip_channels=args.skip_channels, end_channels= args.end_channels,
+                seq_length=args.seq_in_len, in_dim=args.in_dim, out_dim=args.seq_out_len,
+                layers=args.layers, propalpha=args.propalpha, tanhalpha=args.tanhalpha, layer_norm_affline=True, variational_true=False)
 
     print(args)
     print('The recpetive field size is', model.receptive_field)
@@ -135,6 +144,8 @@ def main(runid):
                 id = torch.tensor(id).to(device)
                 tx = trainx[:, :, id, :]
                 ty = trainy[:, :, id, :]
+                # print("ty.shape", ty.shape)
+                
                 metrics = engine.train(tx, ty[:,0,:,:],id)
                 train_loss.append(metrics[0])
                 train_mape.append(metrics[1])

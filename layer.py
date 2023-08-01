@@ -152,11 +152,12 @@ class dilated_inception(nn.Module):
         return x
 
 class dilated_deconv(nn.Module):
-    def __init__(self, cin, cout, dilation_factor=2):
+    def __init__(self, cin, cout, dilation_factor=2, kernel_size=7):
         super(dilated_deconv, self).__init__()
         self.tconv = nn.ModuleList()
         # self.kernel_set = [2, 3, 6, 7]
-        self.kernel_set = [7, 8, 9, 10]
+        # self.kernel_set = [7, 8, 9, 10]
+        self.kernel_set = list(range(kernel_size, kernel_size + 4))
         cout = int(cout / len(self.kernel_set))
         for kern in self.kernel_set:
             self.tconv.append(nn.ConvTranspose2d(cin, cout, (1, kern), dilation=(1, dilation_factor)))
@@ -336,7 +337,7 @@ class LayerNorm(nn.Module):
             self.register_parameter('weight', None)
             self.register_parameter('bias', None)
         self.reset_parameters()
-
+        
 
     def reset_parameters(self):
         if self.elementwise_affine:
@@ -344,6 +345,9 @@ class LayerNorm(nn.Module):
             init.zeros_(self.bias)
 
     def forward(self, input, idx):
+        # print("layer norm weight.shape", self.weight.shape)
+        # print("layer norm normalized_shape.shape", tuple(input.shape[1:]))
+        # print("layer norm input shape", input.shape)
         if self.elementwise_affine:
             return F.layer_norm(input, tuple(input.shape[1:]), self.weight[:,idx,:], self.bias[:,idx,:], self.eps)
         else:

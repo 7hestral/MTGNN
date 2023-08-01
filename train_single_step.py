@@ -36,10 +36,16 @@ def evaluate(data, X, Y, model, evaluateL2, evaluateL1, batch_size):
             tx = X[:, :, id, :]
             # ty = torch.squeeze(tx)
             # print("ty.shape", ty.shape)
-            ty = Y[:, id]
+            if args.multi_step_true:
+                Y = torch.unsqueeze(Y,dim=1)
+                Y = Y.transpose(2,3)
+                ty = Y[:, :, id, :]
+            else:
+                ty = Y[:, id]
             with torch.no_grad():
                 output, mu, logvar = model(tx, id)
-            output = torch.squeeze(output)
+            if not args.multi_step_true:
+                output = torch.squeeze(output)
 
             # print("validation mu", mu)
             # print("validation logvar", logvar)
@@ -121,18 +127,26 @@ def train(data, X, Y, model, criterion, optim, batch_size):
             tx = X[:, :, id, :]
             # ty = torch.squeeze(tx)
             # print("ty.shape", ty.shape)
-            ty = Y[:, id]
+            if args.multi_step_true:
+                Y = torch.unsqueeze(Y,dim=1)
+                Y = Y.transpose(2,3)
+                ty = Y[:, :, id, :]
+            else:
+                ty = Y[:, id]
+            print("id.shape", id.shape)
             output, mu, logvar = model(tx,id)
 
             if args.variational_true:
                 kldiv = kl_loss(mu, logvar)
             else:
                 kldiv = torch.tensor([0]).to(device)
-            output = torch.squeeze(output)
+            if not args.multi_step_true:
+                output = torch.squeeze(output)
             scale = data.scale.expand(output.size(0), data.m)
             scale = scale[:,id]
             # print(scale.shape)
-            # TODO: save both loss
+            print("output", output.shape)
+            print("ty", ty.shape)
             mse_loss = criterion(output, ty)
             loss = mse_loss + kldiv
             total_mse_loss += (mse_loss.item())
@@ -191,7 +205,7 @@ parser.add_argument('--tanhalpha',type=float,default=3,help='tanh alpha')
 parser.add_argument('--epochs',type=int,default=10,help='')
 parser.add_argument('--num_split',type=int,default=3,help='number of splits for graphs')
 parser.add_argument('--step_size',type=int,default=100,help='step_size')
-parser.add_argument('--variational_true', type=bool, default=True, help='whether to use vae')
+parser.add_argument('--variational_true', type=bool, default=False, help='whether to use vae')
 parser.add_argument('--multi_step_true', type=bool, default=False, help='whether to predict multiple steps')
 args = parser.parse_args()
 device = torch.device(args.device)
@@ -200,13 +214,18 @@ torch.set_num_threads(3)
 def main():
 
     Data = DataLoaderS(args.data, 0.6, 0.2, device, args.horizon, args.seq_in_len, args.normalize, multi_step_true=args.multi_step_true)
+    args.variational_true = False
     print(args)
-    model = gtnet(args.gcn_true, args.buildA_true, args.gcn_depth, args.num_nodes,
-                  device, dropout=args.dropout, subgraph_size=args.subgraph_size,
+    if args.multi_step_true:
+        out_dim = args.horizon
+    else:
+        out_dim = 1
+    model = gtnet(args.gcn_true, args.buildA_true, args.gcn_depth, num_nodes=args.num_nodes,
+                  device=device, dropout=args.dropout, subgraph_size=args.subgraph_size,
                   node_dim=args.node_dim, dilation_exponential=args.dilation_exponential,
                   conv_channels=args.conv_channels, residual_channels=args.residual_channels,
                   skip_channels=args.skip_channels, end_channels= args.end_channels,
-                  seq_length=args.seq_in_len, in_dim=args.in_dim, out_dim=args.seq_out_len,
+                  seq_length=args.seq_in_len, in_dim=args.in_dim, out_dim=out_dim,
                   layers=args.layers, propalpha=args.propalpha, tanhalpha=args.tanhalpha, layer_norm_affline=False, variational_true=args.variational_true)
     model = model.to(device)
 

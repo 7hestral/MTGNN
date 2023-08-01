@@ -19,8 +19,11 @@ class Trainer():
     def train(self, input, real_val, idx=None):
         self.model.train()
         self.optimizer.zero_grad()
+        # print('input.shape', input.shape)
         output = self.model(input, idx=idx)
+        # print("output.shape", output.shape)
         output = output.transpose(1,3)
+        # print("output.shape after transpose", output.shape)
         real = torch.unsqueeze(real_val,dim=1)
         predict = self.scaler.inverse_transform(output)
         if self.iter%self.step==0 and self.task_level<=self.seq_out_len:
